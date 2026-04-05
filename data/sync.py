@@ -136,3 +136,23 @@ def query_osm_speed_limit(lat: float, lng: float) -> int | None:
     if not maxspeed:
         return None
     return _parse_maxspeed(maxspeed)
+
+
+def get_speed_limit(
+    lat: float,
+    lng: float,
+    zone_type: str,
+    overrides: dict,
+    source_location_id: str,
+) -> int | None:
+    """Resolve the speed limit for a camera.
+
+    School zones: always 20 MPH (Chicago ordinance).
+    Park zones: OSM Overpass → overrides.json → None.
+    """
+    if zone_type == "school":
+        return 20
+    osm = query_osm_speed_limit(lat, lng)
+    if osm is not None:
+        return osm
+    return overrides.get(source_location_id)

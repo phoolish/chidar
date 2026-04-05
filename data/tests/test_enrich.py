@@ -1,5 +1,5 @@
 from unittest.mock import Mock, patch
-from sync import determine_zone_type, _parse_maxspeed, query_osm_speed_limit
+from sync import determine_zone_type, _parse_maxspeed, query_osm_speed_limit, get_speed_limit
 
 # A small park polygon centered around (lat=41.875, lng=-87.625)
 PARK_GEOJSON = {
@@ -88,4 +88,30 @@ def test_query_osm_speed_limit_returns_none_when_no_maxspeed_tag():
     mock_data = {"elements": [{"tags": {"highway": "residential"}}]}
     with patch("sync.requests.post", return_value=_mock_post(mock_data)):
         result = query_osm_speed_limit(41.8781, -87.6298)
+    assert result is None
+
+
+def test_school_zone_always_returns_20_without_calling_osm():
+    with patch("sync.query_osm_speed_limit") as mock_osm:
+        result = get_speed_limit(SCHOOL_LAT, SCHOOL_LNG, "school", {}, "any-id")
+    mock_osm.assert_not_called()
+    assert result == 20
+
+
+def test_park_zone_uses_osm_when_available():
+    with patch("sync.query_osm_speed_limit", return_value=30):
+        result = get_speed_limit(PARK_LAT, PARK_LNG, "park", {}, "loc-001")
+    assert result == 30
+
+
+def test_park_zone_falls_back_to_override_when_osm_returns_none():
+    overrides = {"loc-001": 25}
+    with patch("sync.query_osm_speed_limit", return_value=None):
+        result = get_speed_limit(PARK_LAT, PARK_LNG, "park", overrides, "loc-001")
+    assert result == 25
+
+
+def test_park_zone_returns_none_when_neither_osm_nor_override():
+    with patch("sync.query_osm_speed_limit", return_value=None):
+        result = get_speed_limit(PARK_LAT, PARK_LNG, "park", {}, "loc-unknown")
     assert result is None
