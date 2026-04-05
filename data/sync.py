@@ -67,3 +67,21 @@ def fetch_parks() -> dict:
     response = requests.get(url)
     response.raise_for_status()
     return response.json()
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: Enrich — zone type
+# ---------------------------------------------------------------------------
+
+
+def determine_zone_type(lat: float, lng: float, parks_geojson: dict) -> str:
+    """Return 'park' if the coordinate falls inside a park polygon, else 'school'.
+
+    Shapely Point(x, y) takes (longitude, latitude).
+    """
+    point = Point(lng, lat)
+    for feature in parks_geojson["features"]:
+        polygon = shape(feature["geometry"])
+        if point.within(polygon):
+            return "park"
+    return "school"
