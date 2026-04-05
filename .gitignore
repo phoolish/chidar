@@ -89,4 +89,3 @@ Thumbs.db
 data/.cache/
 data/output/
 data/__pycache__/
-*.pyc
