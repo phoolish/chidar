@@ -55,7 +55,7 @@ def fetch_cameras(app_token: str) -> list[dict]:
     response = requests.get(
         url,
         headers={"X-App-Token": app_token},
-        params={"$limit": 1000},
+        params={"$limit": 1000},  # dataset has ~160 cameras; revisit if it grows past 1000
     )
     response.raise_for_status()
     return response.json()

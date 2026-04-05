@@ -1,4 +1,8 @@
 from unittest.mock import Mock, patch
+
+import pytest
+import requests
+
 from sync import fetch_cameras, fetch_parks
 
 SAMPLE_CAMERA = {
@@ -55,3 +59,19 @@ def test_fetch_parks_returns_feature_collection():
         result = fetch_parks()
     assert result["type"] == "FeatureCollection"
     assert len(result["features"]) == 1
+
+
+def test_fetch_cameras_raises_on_http_error():
+    m = _mock_response([])
+    m.raise_for_status.side_effect = requests.HTTPError("404")
+    with patch("sync.requests.get", return_value=m):
+        with pytest.raises(requests.HTTPError):
+            fetch_cameras("my-token")
+
+
+def test_fetch_parks_raises_on_http_error():
+    m = _mock_response({})
+    m.raise_for_status.side_effect = requests.HTTPError("500")
+    with patch("sync.requests.get", return_value=m):
+        with pytest.raises(requests.HTTPError):
+            fetch_parks()
