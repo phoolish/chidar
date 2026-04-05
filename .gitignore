@@ -1,3 +1,6 @@
+# Allow Gradle wrapper jar (overrides global gitignore)
+!gradle/wrapper/gradle-wrapper.jar
+
 # Built application files
 *.apk
 *.aar
