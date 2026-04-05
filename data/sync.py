@@ -43,3 +43,27 @@ _SCRIPT_DIR = os.path.dirname(__file__)
 OVERRIDES_PATH = os.path.join(_SCRIPT_DIR, "overrides.json")
 OUTPUT_DIR = os.path.join(_SCRIPT_DIR, "output")
 CACHE_DIR = os.path.join(_SCRIPT_DIR, ".cache")
+
+# ---------------------------------------------------------------------------
+# Stage 1: Fetch
+# ---------------------------------------------------------------------------
+
+
+def fetch_cameras(app_token: str) -> list[dict]:
+    """Fetch raw speed camera records from Chicago SODA API."""
+    url = f"{SODA_BASE_URL}/{CAMERAS_DATASET}.json"
+    response = requests.get(
+        url,
+        headers={"X-App-Token": app_token},
+        params={"$limit": 1000},
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_parks() -> dict:
+    """Fetch Chicago park boundaries as GeoJSON FeatureCollection."""
+    url = f"{SODA_BASE_URL}/{PARKS_DATASET}.geojson"
+    response = requests.get(url)
+    response.raise_for_status()
+    return response.json()
