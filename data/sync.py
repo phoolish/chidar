@@ -85,3 +85,54 @@ def determine_zone_type(lat: float, lng: float, parks_geojson: dict) -> str:
         if point.within(polygon):
             return "park"
     return "school"
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: Enrich — speed limits
+# ---------------------------------------------------------------------------
+
+def _parse_maxspeed(maxspeed: str) -> int | None:
+    """Parse an OSM maxspeed tag value to integer MPH.
+
+    Handles: "30 mph", "30mph", "48 km/h", "48 kmh", "48" (bare = km/h).
+    Returns None if the string cannot be parsed.
+    """
+    s = maxspeed.strip().lower().replace(" ", "")
+    if "mph" in s:
+        try:
+            return int(s.replace("mph", ""))
+        except ValueError:
+            return None
+    if "km/h" in s or "kmh" in s:
+        try:
+            kmh = int(s.replace("km/h", "").replace("kmh", ""))
+            return round(kmh * 0.621371)
+        except ValueError:
+            return None
+    # Bare number — OSM convention is km/h
+    try:
+        return round(int(s) * 0.621371)
+    except ValueError:
+        return None
+
+
+def query_osm_speed_limit(lat: float, lng: float) -> int | None:
+    """Query OSM Overpass API for the posted speed limit nearest to the coordinate.
+
+    Searches for road ways within 50 metres with a maxspeed tag.
+    Returns speed limit in MPH, or None if not found.
+    """
+    query = (
+        "[out:json];"
+        f"way(around:50,{lat},{lng})[highway][maxspeed];"
+        "out tags;"
+    )
+    response = requests.post(OVERPASS_URL, data={"data": query})
+    response.raise_for_status()
+    elements = response.json().get("elements", [])
+    if not elements:
+        return None
+    maxspeed = elements[0]["tags"].get("maxspeed")
+    if not maxspeed:
+        return None
+    return _parse_maxspeed(maxspeed)
