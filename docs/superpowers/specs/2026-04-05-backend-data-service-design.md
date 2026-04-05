@@ -33,7 +33,7 @@ docs/
   (gh-pages branch — cameras.json and manifest.json published here)
 ```
 
-**Published URL:** `https://lphilbrook.github.io/chidar/cameras.json`
+**Published URL:** `https://phoolish.github.io/chidar/cameras.json`
 
 ---
 
