@@ -84,3 +84,7 @@ Thumbs.db
 
 # Superpowers brainstorm artifacts
 .superpowers/
+
+# Data pipeline
+data/.cache/
+data/output/
