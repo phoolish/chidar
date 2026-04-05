@@ -156,3 +156,51 @@ def get_speed_limit(
     if osm is not None:
         return osm
     return overrides.get(source_location_id)
+
+
+def enrich_cameras(
+    raw_cameras: list[dict],
+    parks_geojson: dict,
+    overrides: dict,
+) -> tuple[list[dict], list[str]]:
+    """Map raw SODA records to the output schema with zone type and speed limits.
+
+    Returns (cameras, warnings).
+    warnings lists cameras where speed_limit_mph could not be resolved.
+    """
+    cameras: list[dict] = []
+    warnings: list[str] = []
+
+    for raw in raw_cameras:
+        lat = float(raw["latitude"])
+        lng = float(raw["longitude"])
+        loc_id = raw["location_id"]
+        zone_type = determine_zone_type(lat, lng, parks_geojson)
+        speed_limit = get_speed_limit(lat, lng, zone_type, overrides, loc_id)
+
+        if speed_limit is None:
+            warnings.append(
+                f"No speed limit resolved for camera {loc_id} "
+                f"(lat={lat}, lng={lng}, zone={zone_type})"
+            )
+
+        raw_second = raw.get("second_approach") or None
+        cameras.append(
+            {
+                "id": f"CHI-{loc_id}",
+                "source_location_id": loc_id,
+                "latitude": lat,
+                "longitude": lng,
+                "speed_limit_mph": speed_limit,
+                "first_approach": (raw.get("first_approach") or "").lower() or None,
+                "second_approach": raw_second.lower() if raw_second else None,
+                "enforcement_zone": zone_type,
+                "street": raw.get("address", ""),
+                "cross_street": None,
+                "active": True,
+                "go_live_date": (raw.get("go_live_date") or "")[:10] or None,
+                "last_verified": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        )
+
+    return cameras, warnings

@@ -1,5 +1,5 @@
 from unittest.mock import Mock, patch
-from sync import determine_zone_type, _parse_maxspeed, query_osm_speed_limit, get_speed_limit
+from sync import determine_zone_type, _parse_maxspeed, query_osm_speed_limit, get_speed_limit, enrich_cameras
 
 # A small park polygon centered around (lat=41.875, lng=-87.625)
 PARK_GEOJSON = {
@@ -115,3 +115,61 @@ def test_park_zone_returns_none_when_neither_osm_nor_override():
     with patch("sync.query_osm_speed_limit", return_value=None):
         result = get_speed_limit(PARK_LAT, PARK_LNG, "park", {}, "loc-unknown")
     assert result is None
+
+
+RAW_SCHOOL_CAMERA = {
+    "location_id": "1234",
+    "address": "4900 N WESTERN AVE",
+    "first_approach": "Northbound",
+    "second_approach": "",          # empty string → should become None
+    "go_live_date": "2020-01-01T00:00:00.000",
+    "latitude": str(SCHOOL_LAT),
+    "longitude": str(SCHOOL_LNG),
+}
+
+RAW_PARK_CAMERA = {
+    "location_id": "5678",
+    "address": "100 S LAKE SHORE DR",
+    "first_approach": "Southbound",
+    "second_approach": "Northbound",
+    "go_live_date": "2021-06-01T00:00:00.000",
+    "latitude": str(PARK_LAT),
+    "longitude": str(PARK_LNG),
+}
+
+
+def test_enrich_school_camera_structure():
+    cameras, warnings = enrich_cameras([RAW_SCHOOL_CAMERA], PARK_GEOJSON, {})
+    assert len(cameras) == 1
+    cam = cameras[0]
+    assert cam["id"] == "CHI-1234"
+    assert cam["source_location_id"] == "1234"
+    assert cam["latitude"] == SCHOOL_LAT
+    assert cam["longitude"] == SCHOOL_LNG
+    assert cam["enforcement_zone"] == "school"
+    assert cam["speed_limit_mph"] == 20
+    assert cam["first_approach"] == "northbound"
+    assert cam["second_approach"] is None
+    assert cam["street"] == "4900 N WESTERN AVE"
+    assert cam["active"] is True
+    assert cam["go_live_date"] == "2020-01-01"
+    assert warnings == []
+
+
+def test_enrich_park_camera_with_second_approach():
+    with patch("sync.query_osm_speed_limit", return_value=30):
+        cameras, warnings = enrich_cameras([RAW_PARK_CAMERA], PARK_GEOJSON, {})
+    cam = cameras[0]
+    assert cam["id"] == "CHI-5678"
+    assert cam["enforcement_zone"] == "park"
+    assert cam["speed_limit_mph"] == 30
+    assert cam["second_approach"] == "northbound"
+    assert warnings == []
+
+
+def test_enrich_warns_when_speed_limit_unresolved():
+    with patch("sync.query_osm_speed_limit", return_value=None):
+        cameras, warnings = enrich_cameras([RAW_PARK_CAMERA], PARK_GEOJSON, {})
+    assert cameras[0]["speed_limit_mph"] is None
+    assert len(warnings) == 1
+    assert "5678" in warnings[0]
