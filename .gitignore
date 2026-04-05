@@ -88,3 +88,5 @@ Thumbs.db
 # Data pipeline
 data/.cache/
 data/output/
+data/__pycache__/
+*.pyc
