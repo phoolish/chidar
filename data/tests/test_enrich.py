@@ -154,6 +154,8 @@ def test_enrich_school_camera_structure():
     assert cam["active"] is True
     assert cam["go_live_date"] == "2020-01-01"
     assert warnings == []
+    assert "last_verified" in cam
+    assert cam["last_verified"].endswith("Z")
 
 
 def test_enrich_park_camera_with_second_approach():
@@ -173,3 +175,11 @@ def test_enrich_warns_when_speed_limit_unresolved():
     assert cameras[0]["speed_limit_mph"] is None
     assert len(warnings) == 1
     assert "5678" in warnings[0]
+
+
+def test_enrich_uses_override_when_osm_unavailable():
+    overrides = {"5678": 25}
+    with patch("sync.query_osm_speed_limit", return_value=None):
+        cameras, warnings = enrich_cameras([RAW_PARK_CAMERA], PARK_GEOJSON, overrides)
+    assert cameras[0]["speed_limit_mph"] == 25
+    assert warnings == []  # override resolved it, no warning

@@ -195,8 +195,8 @@ def enrich_cameras(
                 "first_approach": (raw.get("first_approach") or "").lower() or None,
                 "second_approach": raw_second.lower() if raw_second else None,
                 "enforcement_zone": zone_type,
-                "street": raw.get("address", ""),
-                "cross_street": None,
+                "street": raw.get("address") or None,
+                "cross_street": None,  # SODA dataset does not include cross-street data
                 "active": True,
                 "go_live_date": (raw.get("go_live_date") or "")[:10] or None,
                 "last_verified": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
