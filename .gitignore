@@ -79,8 +79,13 @@ lint/tmp/
 .DS_Store
 Thumbs.db
 
-# Plans directory (local only)
-plans/
+# Plans directory (local only, root-level only)
+/plans/
 
 # Superpowers brainstorm artifacts
 .superpowers/
+
+# Data pipeline
+data/.cache/
+data/output/
+data/__pycache__/
