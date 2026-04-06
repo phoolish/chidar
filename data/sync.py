@@ -19,6 +19,8 @@ PARKS_DATASET = "ej32-qgdr"  # Chicago Park District Park Boundaries
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 PUBLISHED_URL = "https://phoolish.github.io/chidar/cameras.json"
 DIFF_THRESHOLD = 15
+# ~1/8 mile buffer in degrees at Chicago's latitude (~200m); matches park safety zone ordinance
+_PARK_ZONE_BUFFER_DEG = 0.002
 
 CHICAGO_BOUNDS = {
     "lat_min": 41.6,
@@ -76,16 +78,18 @@ def fetch_parks() -> dict:
 
 
 def determine_zone_type(lat: float, lng: float, parks_geojson: dict) -> str:
-    """Return 'park' if the coordinate falls inside a park polygon, else 'school'.
+    """Return 'park' if the coordinate is within the park safety zone, else 'school'.
 
-    Shapely Point(x, y) takes (longitude, latitude).
+    Speed cameras are on roads adjacent to parks, not inside them. We buffer each
+    park polygon by ~200m (matching Chicago's 1/8 mile safety zone ordinance) before
+    testing. Shapely Point(x, y) takes (longitude, latitude).
     """
     point = Point(lng, lat)
     for feature in parks_geojson["features"]:
         if not feature.get("geometry"):
             continue
         polygon = shape(feature["geometry"])
-        if point.within(polygon):
+        if point.within(polygon.buffer(_PARK_ZONE_BUFFER_DEG)):
             return "park"
     return "school"
 
@@ -177,7 +181,7 @@ def enrich_cameras(
     for raw in raw_cameras:
         lat = float(raw["latitude"])
         lng = float(raw["longitude"])
-        loc_id = raw["location_id"]
+        loc_id = raw["id"]  # numeric Socrata row ID; location_id already has "CHI" prefix
         zone_type = determine_zone_type(lat, lng, parks_geojson)
         speed_limit = get_speed_limit(lat, lng, zone_type, overrides, loc_id)
 

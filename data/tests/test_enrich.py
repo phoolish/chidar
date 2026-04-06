@@ -41,6 +41,12 @@ def test_determine_zone_type_empty_parks_returns_school():
     assert determine_zone_type(PARK_LAT, PARK_LNG, empty) == "school"
 
 
+def test_determine_zone_type_adjacent_to_park_returns_park():
+    """Camera on a road just outside a park polygon should be park zone (buffer check)."""
+    # Park polygon east edge is at lng -87.62. A point at -87.619 is ~0.001° outside it.
+    assert determine_zone_type(41.875, -87.619, PARK_GEOJSON) == "park"
+
+
 def test_determine_zone_type_skips_null_geometry_feature():
     """Features with null geometry (as seen in real Chicago parks data) are skipped."""
     geojson_with_null = {
@@ -130,7 +136,8 @@ def test_park_zone_returns_none_when_neither_osm_nor_override():
 
 
 RAW_SCHOOL_CAMERA = {
-    "location_id": "1234",
+    "id": "1234",
+    "location_id": "CHI1234",
     "address": "4900 N WESTERN AVE",
     "first_approach": "Northbound",
     "second_approach": "",          # empty string → should become None
@@ -140,7 +147,8 @@ RAW_SCHOOL_CAMERA = {
 }
 
 RAW_PARK_CAMERA = {
-    "location_id": "5678",
+    "id": "5678",
+    "location_id": "CHI5678",
     "address": "100 S LAKE SHORE DR",
     "first_approach": "Southbound",
     "second_approach": "Northbound",
