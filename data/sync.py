@@ -204,3 +204,43 @@ def enrich_cameras(
         )
 
     return cameras, warnings
+
+
+# ---------------------------------------------------------------------------
+# Stage 3: Validate
+# ---------------------------------------------------------------------------
+
+
+def validate_cameras(cameras: list[dict]) -> tuple[list[str], list[str]]:
+    """Validate enriched camera records.
+
+    Returns (errors, warnings).
+    Non-empty errors means the pipeline must abort before publishing.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    count = len(cameras)
+    if count < 100:
+        warnings.append(f"Camera count {count} is suspiciously low (expected >= 100)")
+    elif count > 250:
+        warnings.append(f"Camera count {count} is suspiciously high (expected <= 250)")
+
+    for cam in cameras:
+        cam_id = cam.get("id", "?")
+
+        for field in REQUIRED_FIELDS:
+            if cam.get(field) is None:
+                errors.append(f"Camera {cam_id}: missing required field '{field}'")
+
+        if cam.get("speed_limit_mph") is None:
+            errors.append(f"Camera {cam_id}: speed_limit_mph is null")
+
+        lat = cam.get("latitude")
+        lng = cam.get("longitude")
+        if lat is not None and not (CHICAGO_BOUNDS["lat_min"] <= lat <= CHICAGO_BOUNDS["lat_max"]):
+            errors.append(f"Camera {cam_id}: latitude {lat} is outside Chicago bounds")
+        if lng is not None and not (CHICAGO_BOUNDS["lng_min"] <= lng <= CHICAGO_BOUNDS["lng_max"]):
+            errors.append(f"Camera {cam_id}: longitude {lng} is outside Chicago bounds")
+
+    return errors, warnings
