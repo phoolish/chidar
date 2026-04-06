@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from sync import validate_cameras, diff_cameras, DIFF_THRESHOLD
+from sync import validate_cameras, diff_cameras, write_output, DIFF_THRESHOLD
 
 VALID_CAM = {
     "id": "CHI-0",
@@ -125,3 +125,32 @@ def test_diff_raises_when_changes_exceed_threshold():
     with patch("sync.requests.get", return_value=_mock_published(published)):
         with pytest.raises(ValueError, match="threshold"):
             diff_cameras(new, PUBLISHED_URL)
+
+
+def test_write_output_creates_cameras_json():
+    cameras = [_make_cam("CHI-A")]
+    diff = {"added": [], "removed": [], "changed": []}
+    with tempfile.TemporaryDirectory() as tmpdir:
+        write_output(cameras, diff, [], tmpdir)
+        cameras_path = os.path.join(tmpdir, "cameras.json")
+        assert os.path.exists(cameras_path)
+        with open(cameras_path) as f:
+            data = json.load(f)
+        assert data["version"] == "1.0"
+        assert len(data["cameras"]) == 1
+        assert data["cameras"][0]["id"] == "CHI-A"
+        assert "last_updated" in data
+
+
+def test_write_output_creates_manifest_json():
+    cameras = [_make_cam("CHI-A")]
+    diff = {"added": ["CHI-B"], "removed": [], "changed": []}
+    warnings = ["some warning"]
+    with tempfile.TemporaryDirectory() as tmpdir:
+        write_output(cameras, diff, warnings, tmpdir)
+        with open(os.path.join(tmpdir, "manifest.json")) as f:
+            manifest = json.load(f)
+        assert manifest["camera_count"] == 1
+        assert manifest["diff"]["added"] == ["CHI-B"]
+        assert manifest["warnings"] == ["some warning"]
+        assert "generated_at" in manifest

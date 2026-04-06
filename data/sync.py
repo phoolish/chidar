@@ -282,3 +282,37 @@ def diff_cameras(new_cameras: list[dict], published_url: str) -> dict:
         )
 
     return {"added": added, "removed": removed, "changed": changed}
+
+
+# ---------------------------------------------------------------------------
+# Stage 5: Write
+# ---------------------------------------------------------------------------
+
+
+def write_output(
+    cameras: list[dict],
+    diff: dict,
+    warnings: list[str],
+    output_dir: str,
+) -> None:
+    """Write cameras.json and manifest.json to output_dir."""
+    os.makedirs(output_dir, exist_ok=True)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    cameras_data = {
+        "version": "1.0",
+        "last_updated": now,
+        "cameras": cameras,
+    }
+    manifest_data = {
+        "generated_at": now,
+        "camera_count": len(cameras),
+        "warnings": warnings,
+        "diff": diff,
+    }
+
+    with open(os.path.join(output_dir, "cameras.json"), "w") as f:
+        json.dump(cameras_data, f, indent=2)
+
+    with open(os.path.join(output_dir, "manifest.json"), "w") as f:
+        json.dump(manifest_data, f, indent=2)
