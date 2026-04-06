@@ -4,10 +4,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 import requests
-from shapely.geometry import Point, shape
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -15,12 +15,9 @@ from shapely.geometry import Point, shape
 
 SODA_BASE_URL = "https://data.cityofchicago.org/resource"
 CAMERAS_DATASET = "4i42-qv3h"
-PARKS_DATASET = "ej32-qgdr"  # Chicago Park District Park Boundaries
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 PUBLISHED_URL = "https://phoolish.github.io/chidar/cameras.json"
 DIFF_THRESHOLD = 15
-# ~1/8 mile buffer in degrees at Chicago's latitude (~200m); matches park safety zone ordinance
-_PARK_ZONE_BUFFER_DEG = 0.002
 
 CHICAGO_BOUNDS = {
     "lat_min": 41.6,
@@ -64,34 +61,43 @@ def fetch_cameras(app_token: str) -> list[dict]:
     return response.json()
 
 
-def fetch_parks() -> dict:
-    """Fetch Chicago park boundaries as GeoJSON FeatureCollection."""
-    url = f"{SODA_BASE_URL}/{PARKS_DATASET}.geojson"
-    response = requests.get(url)
-    response.raise_for_status()
-    return response.json()
-
-
 # ---------------------------------------------------------------------------
-# Stage 2: Enrich — zone type
+# Stage 2: Enrich — zone type + speed limit (combined per-camera OSM query)
 # ---------------------------------------------------------------------------
 
 
-def determine_zone_type(lat: float, lng: float, parks_geojson: dict) -> str:
-    """Return 'park' if the coordinate is within the park safety zone, else 'school'.
+def query_osm_for_camera(lat: float, lng: float) -> tuple[str, int | None]:
+    """Single Overpass query returning zone type and speed limit for one camera.
 
-    Speed cameras are on roads adjacent to parks, not inside them. We buffer each
-    park polygon by ~200m (matching Chicago's 1/8 mile safety zone ordinance) before
-    testing. Shapely Point(x, y) takes (longitude, latitude).
+    Checks for a park way within 200m (Chicago's ~1/8 mile safety zone) and a road
+    with a maxspeed tag within 50m. Defaults to 'school' zone on any error.
+
+    Returns (zone_type, speed_limit_mph). speed_limit_mph is None if not found.
     """
-    point = Point(lng, lat)
-    for feature in parks_geojson["features"]:
-        if not feature.get("geometry"):
-            continue
-        polygon = shape(feature["geometry"])
-        if point.within(polygon.buffer(_PARK_ZONE_BUFFER_DEG)):
-            return "park"
-    return "school"
+    query = (
+        "[out:json];"
+        f"("
+        f"  way[\"leisure\"=\"park\"](around:200,{lat},{lng});"
+        f"  way[highway][maxspeed](around:50,{lat},{lng});"
+        f");"
+        "out tags;"
+    )
+    try:
+        response = requests.post(OVERPASS_URL, data={"data": query}, timeout=15)
+        response.raise_for_status()
+        elements = response.json().get("elements", [])
+    except Exception:
+        return "school", None
+
+    zone_type = "school"
+    speed_limit: int | None = None
+    for elem in elements:
+        tags = elem.get("tags", {})
+        if tags.get("leisure") == "park":
+            zone_type = "park"
+        if "maxspeed" in tags and speed_limit is None:
+            speed_limit = _parse_maxspeed(tags["maxspeed"])
+    return zone_type, speed_limit
 
 
 # ---------------------------------------------------------------------------
@@ -123,57 +129,17 @@ def _parse_maxspeed(maxspeed: str) -> int | None:
         return None
 
 
-def query_osm_speed_limit(lat: float, lng: float) -> int | None:
-    """Query OSM Overpass API for the posted speed limit nearest to the coordinate.
-
-    Searches for road ways within 50 metres with a maxspeed tag.
-    Returns speed limit in MPH, or None if not found.
-    """
-    query = (
-        "[out:json];"
-        f"way(around:50,{lat},{lng})[highway][maxspeed];"
-        "out tags;"
-    )
-    response = requests.post(OVERPASS_URL, data={"data": query})
-    response.raise_for_status()
-    elements = response.json().get("elements", [])
-    if not elements:
-        return None
-    maxspeed = elements[0]["tags"].get("maxspeed")
-    if not maxspeed:
-        return None
-    return _parse_maxspeed(maxspeed)
-
-
-def get_speed_limit(
-    lat: float,
-    lng: float,
-    zone_type: str,
-    overrides: dict,
-    source_location_id: str,
-) -> int | None:
-    """Resolve the speed limit for a camera.
-
-    School zones: always 20 MPH (Chicago ordinance).
-    Park zones: OSM Overpass → overrides.json → None.
-    """
-    if zone_type == "school":
-        return 20
-    osm = query_osm_speed_limit(lat, lng)
-    if osm is not None:
-        return osm
-    return overrides.get(source_location_id)
-
-
 def enrich_cameras(
     raw_cameras: list[dict],
-    parks_geojson: dict,
     overrides: dict,
 ) -> tuple[list[dict], list[str]]:
     """Map raw SODA records to the output schema with zone type and speed limits.
 
-    Returns (cameras, warnings).
-    warnings lists cameras where speed_limit_mph could not be resolved.
+    Makes one OSM Overpass call per camera to determine zone type (park/school)
+    and speed limit simultaneously. School zones always get 20 MPH per ordinance;
+    park zones use the OSM speed limit, then overrides.json, then None.
+
+    Returns (cameras, warnings). warnings lists cameras with unresolved speed limits.
     """
     cameras: list[dict] = []
     warnings: list[str] = []
@@ -181,9 +147,15 @@ def enrich_cameras(
     for raw in raw_cameras:
         lat = float(raw["latitude"])
         lng = float(raw["longitude"])
-        loc_id = raw["id"]  # numeric Socrata row ID; location_id already has "CHI" prefix
-        zone_type = determine_zone_type(lat, lng, parks_geojson)
-        speed_limit = get_speed_limit(lat, lng, zone_type, overrides, loc_id)
+        loc_id = raw["location_id"]  # city-assigned stable ID, e.g. "CHI217"
+        zone_type, osm_speed = query_osm_for_camera(lat, lng)
+        time.sleep(0.5)  # avoid Overpass rate limiting
+        if zone_type == "school":
+            speed_limit: int | None = 20
+        elif osm_speed is not None:
+            speed_limit = osm_speed
+        else:
+            speed_limit = overrides.get(loc_id)
 
         if speed_limit is None:
             warnings.append(
@@ -194,7 +166,7 @@ def enrich_cameras(
         raw_second = raw.get("second_approach") or None
         cameras.append(
             {
-                "id": f"CHI-{loc_id}",
+                "id": loc_id,  # location_id is already namespaced, e.g. "CHI217"
                 "source_location_id": loc_id,
                 "latitude": lat,
                 "longitude": lng,
@@ -340,13 +312,12 @@ def main() -> None:
 
     print("Stage 1: Fetching data...")
     raw_cameras = fetch_cameras(app_token)
-    parks_geojson = fetch_parks()
-    print(f"  {len(raw_cameras)} cameras, {len(parks_geojson['features'])} park polygons")
+    print(f"  {len(raw_cameras)} cameras")
 
-    print("Stage 2: Enriching cameras...")
+    print("Stage 2: Enriching cameras (one OSM query per camera)...")
     with open(OVERRIDES_PATH) as f:
         overrides = json.load(f)
-    cameras, enrich_warnings = enrich_cameras(raw_cameras, parks_geojson, overrides)
+    cameras, enrich_warnings = enrich_cameras(raw_cameras, overrides)
     for w in enrich_warnings:
         print(f"  WARNING: {w}")
 
