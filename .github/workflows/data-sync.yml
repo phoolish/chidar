@@ -23,10 +23,24 @@ jobs:
       - name: Install dependencies
         run: pip install -r data/requirements.txt
 
+      - name: Restore OSM cache
+        uses: actions/cache@v4
+        with:
+          path: data/.cache/osm_cache.json
+          key: osm-cache-${{ runner.os }}
+          restore-keys: osm-cache-
+
       - name: Run pipeline
         env:
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
         run: python data/sync.py
+
+      - name: Save OSM cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data/.cache/osm_cache.json
+          key: osm-cache-${{ runner.os }}-${{ github.run_id }}
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

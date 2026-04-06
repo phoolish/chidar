@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 from sync import _parse_maxspeed, query_osm_for_camera, enrich_cameras
 
 PARK_LAT, PARK_LNG = 41.875, -87.625
@@ -114,7 +114,9 @@ RAW_PARK_CAMERA = {
 
 def test_enrich_school_camera_structure():
     osm = _overpass_road_only()  # no park element → school zone
-    with patch("sync.requests.post", return_value=_mock_post(osm)):
+    with patch("sync.requests.post", return_value=_mock_post(osm)), \
+         patch("sync._load_osm_cache", return_value={}), \
+         patch("sync._save_osm_cache"):
         cameras, warnings = enrich_cameras([RAW_SCHOOL_CAMERA], {})
     assert len(cameras) == 1
     cam = cameras[0]
@@ -136,7 +138,9 @@ def test_enrich_school_camera_structure():
 
 def test_enrich_park_camera_with_second_approach():
     osm = _overpass_park_and_road("30 mph")
-    with patch("sync.requests.post", return_value=_mock_post(osm)):
+    with patch("sync.requests.post", return_value=_mock_post(osm)), \
+         patch("sync._load_osm_cache", return_value={}), \
+         patch("sync._save_osm_cache"):
         cameras, warnings = enrich_cameras([RAW_PARK_CAMERA], {})
     cam = cameras[0]
     assert cam["id"] == "CHI5678"
@@ -149,7 +153,9 @@ def test_enrich_park_camera_with_second_approach():
 def test_enrich_warns_when_speed_limit_unresolved():
     # Park zone but no road maxspeed
     osm = {"elements": [{"tags": {"leisure": "park"}}]}
-    with patch("sync.requests.post", return_value=_mock_post(osm)):
+    with patch("sync.requests.post", return_value=_mock_post(osm)), \
+         patch("sync._load_osm_cache", return_value={}), \
+         patch("sync._save_osm_cache"):
         cameras, warnings = enrich_cameras([RAW_PARK_CAMERA], {})
     assert cameras[0]["speed_limit_mph"] is None
     assert len(warnings) == 1
@@ -159,7 +165,9 @@ def test_enrich_warns_when_speed_limit_unresolved():
 def test_enrich_uses_override_when_osm_unavailable():
     osm = {"elements": [{"tags": {"leisure": "park"}}]}
     overrides = {"CHI5678": 25}
-    with patch("sync.requests.post", return_value=_mock_post(osm)):
+    with patch("sync.requests.post", return_value=_mock_post(osm)), \
+         patch("sync._load_osm_cache", return_value={}), \
+         patch("sync._save_osm_cache"):
         cameras, warnings = enrich_cameras([RAW_PARK_CAMERA], overrides)
     assert cameras[0]["speed_limit_mph"] == 25
     assert warnings == []  # override resolved it, no warning

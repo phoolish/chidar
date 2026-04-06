@@ -43,6 +43,7 @@ _SCRIPT_DIR = os.path.dirname(__file__)
 OVERRIDES_PATH = os.path.join(_SCRIPT_DIR, "overrides.json")
 OUTPUT_DIR = os.path.join(_SCRIPT_DIR, "output")
 CACHE_DIR = os.path.join(_SCRIPT_DIR, ".cache")
+OSM_CACHE_PATH = os.path.join(CACHE_DIR, "osm_cache.json")
 
 # ---------------------------------------------------------------------------
 # Stage 1: Fetch
@@ -66,6 +67,22 @@ def fetch_cameras(app_token: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _load_osm_cache() -> dict:
+    """Load the OSM query cache from disk, returning empty dict if missing."""
+    try:
+        with open(OSM_CACHE_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_osm_cache(cache: dict) -> None:
+    """Persist the OSM query cache to disk."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(OSM_CACHE_PATH, "w") as f:
+        json.dump(cache, f, indent=2)
+
+
 def query_osm_for_camera(lat: float, lng: float) -> tuple[str, int | None]:
     """Single Overpass query returning zone type and speed limit for one camera.
 
@@ -83,7 +100,7 @@ def query_osm_for_camera(lat: float, lng: float) -> tuple[str, int | None]:
         "out tags;"
     )
     try:
-        response = requests.post(OVERPASS_URL, data={"data": query}, timeout=15)
+        response = requests.post(OVERPASS_URL, data={"data": query}, timeout=5)
         response.raise_for_status()
         elements = response.json().get("elements", [])
     except Exception:
@@ -143,13 +160,23 @@ def enrich_cameras(
     """
     cameras: list[dict] = []
     warnings: list[str] = []
+    osm_cache = _load_osm_cache()
+    cache_updated = False
 
     for raw in raw_cameras:
         lat = float(raw["latitude"])
         lng = float(raw["longitude"])
         loc_id = raw["location_id"]  # city-assigned stable ID, e.g. "CHI217"
-        zone_type, osm_speed = query_osm_for_camera(lat, lng)
-        time.sleep(0.5)  # avoid Overpass rate limiting
+        cache_key = f"{lat:.6f},{lng:.6f}"
+        if cache_key in osm_cache:
+            cached = osm_cache[cache_key]
+            zone_type = cached["zone_type"]
+            osm_speed = cached["speed_limit"]
+        else:
+            zone_type, osm_speed = query_osm_for_camera(lat, lng)
+            osm_cache[cache_key] = {"zone_type": zone_type, "speed_limit": osm_speed}
+            cache_updated = True
+            time.sleep(0.5)  # avoid Overpass rate limiting
         if zone_type == "school":
             speed_limit: int | None = 20
         elif osm_speed is not None:
@@ -181,6 +208,9 @@ def enrich_cameras(
                 "last_verified": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
         )
+
+    if cache_updated:
+        _save_osm_cache(osm_cache)
 
     return cameras, warnings
 
