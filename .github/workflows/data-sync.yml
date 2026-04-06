@@ -1,0 +1,55 @@
+name: Data Sync
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 6am UTC daily
+  workflow_dispatch:      # allow manual trigger
+
+jobs:
+  sync:
+    name: Sync Camera Data
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required to push to gh-pages branch
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r data/requirements.txt
+
+      - name: Run pipeline
+        env:
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+        run: python data/sync.py
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: data/output
+          publish_branch: gh-pages
+          keep_files: false
+
+      - name: Write job summary
+        if: always()
+        run: |
+          if [ -f data/output/manifest.json ]; then
+            echo "## Data Sync Summary" >> $GITHUB_STEP_SUMMARY
+            python3 -c "
+          import json, sys
+          m = json.load(open('data/output/manifest.json'))
+          d = m['diff']
+          print(f'**Cameras:** {m[\"camera_count\"]}')
+          print(f'**Changes:** +{len(d[\"added\"])} added, -{len(d[\"removed\"])} removed, ~{len(d[\"changed\"])} changed')
+          if m['warnings']:
+              print('**Warnings:**')
+              for w in m['warnings']:
+                  print(f'- {w}')
+            " >> $GITHUB_STEP_SUMMARY
+          fi
