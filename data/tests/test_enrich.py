@@ -41,6 +41,18 @@ def test_determine_zone_type_empty_parks_returns_school():
     assert determine_zone_type(PARK_LAT, PARK_LNG, empty) == "school"
 
 
+def test_determine_zone_type_skips_null_geometry_feature():
+    """Features with null geometry (as seen in real Chicago parks data) are skipped."""
+    geojson_with_null = {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "geometry": None, "properties": {}},
+            PARK_GEOJSON["features"][0],
+        ],
+    }
+    assert determine_zone_type(PARK_LAT, PARK_LNG, geojson_with_null) == "park"
+
+
 def _mock_post(data):
     m = Mock()
     m.json.return_value = data

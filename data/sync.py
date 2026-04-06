@@ -27,6 +27,8 @@ CHICAGO_BOUNDS = {
     "lng_max": -87.4,
 }
 
+# Note: first_approach is intentionally excluded — CHI-242 and CHI-243 do not
+# provide this field in the SODA dataset, so it is treated as optional.
 # Fields that must be non-null on every published camera record
 REQUIRED_FIELDS = [
     "id",
