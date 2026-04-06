@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from sync import validate_cameras, DIFF_THRESHOLD
+from sync import validate_cameras, diff_cameras, DIFF_THRESHOLD
 
 VALID_CAM = {
     "id": "CHI-0",
@@ -71,3 +71,57 @@ def test_high_camera_count_is_warning_not_error():
     errors, warnings = validate_cameras(make_cameras(300))
     assert errors == []
     assert any("high" in w.lower() or "250" in w for w in warnings)
+
+
+PUBLISHED_URL = "https://phoolish.github.io/chidar/cameras.json"
+
+
+def _make_cam(cam_id: str, speed: int = 30) -> dict:
+    return {**VALID_CAM, "id": cam_id, "source_location_id": cam_id, "speed_limit_mph": speed}
+
+
+def _mock_published(cameras: list[dict]) -> Mock:
+    m = Mock()
+    m.json.return_value = {"version": "1.0", "cameras": cameras}
+    m.raise_for_status = Mock()
+    return m
+
+
+def test_diff_returns_empty_diff_on_first_run():
+    with patch("sync.requests.get", side_effect=Exception("not reachable")):
+        diff = diff_cameras([], PUBLISHED_URL)
+    assert diff == {"added": [], "removed": [], "changed": []}
+
+
+def test_diff_detects_added_camera():
+    published = [_make_cam("CHI-A")]
+    new = [_make_cam("CHI-A"), _make_cam("CHI-B")]
+    with patch("sync.requests.get", return_value=_mock_published(published)):
+        diff = diff_cameras(new, PUBLISHED_URL)
+    assert diff["added"] == ["CHI-B"]
+    assert diff["removed"] == []
+    assert diff["changed"] == []
+
+
+def test_diff_detects_removed_camera():
+    published = [_make_cam("CHI-A"), _make_cam("CHI-B")]
+    new = [_make_cam("CHI-A")]
+    with patch("sync.requests.get", return_value=_mock_published(published)):
+        diff = diff_cameras(new, PUBLISHED_URL)
+    assert diff["removed"] == ["CHI-B"]
+
+
+def test_diff_detects_changed_camera():
+    published = [_make_cam("CHI-A", speed=30)]
+    new = [_make_cam("CHI-A", speed=25)]
+    with patch("sync.requests.get", return_value=_mock_published(published)):
+        diff = diff_cameras(new, PUBLISHED_URL)
+    assert diff["changed"] == ["CHI-A"]
+
+
+def test_diff_raises_when_changes_exceed_threshold():
+    published = [_make_cam(f"CHI-OLD-{i}") for i in range(100)]
+    new = [_make_cam(f"CHI-NEW-{i}") for i in range(100)]
+    with patch("sync.requests.get", return_value=_mock_published(published)):
+        with pytest.raises(ValueError, match="threshold"):
+            diff_cameras(new, PUBLISHED_URL)

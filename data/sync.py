@@ -244,3 +244,41 @@ def validate_cameras(cameras: list[dict]) -> tuple[list[str], list[str]]:
             errors.append(f"Camera {cam_id}: longitude {lng} is outside Chicago bounds")
 
     return errors, warnings
+
+
+# ---------------------------------------------------------------------------
+# Stage 4: Diff
+# ---------------------------------------------------------------------------
+
+def diff_cameras(new_cameras: list[dict], published_url: str) -> dict:
+    """Compare new cameras against the currently published dataset.
+
+    Returns {'added': [...], 'removed': [...], 'changed': [...]} with camera IDs.
+    Returns an empty diff if the published URL is unreachable (first run).
+    Raises ValueError if total changes exceed DIFF_THRESHOLD.
+    """
+    try:
+        response = requests.get(published_url, timeout=10)
+        response.raise_for_status()
+        published_cameras = response.json().get("cameras", [])
+    except Exception:
+        return {"added": [], "removed": [], "changed": []}
+
+    published = {cam["id"]: cam for cam in published_cameras}
+    new = {cam["id"]: cam for cam in new_cameras}
+
+    added = sorted(id_ for id_ in new if id_ not in published)
+    removed = sorted(id_ for id_ in published if id_ not in new)
+    changed = sorted(
+        id_ for id_ in new if id_ in published and new[id_] != published[id_]
+    )
+
+    total = len(added) + len(removed) + len(changed)
+    if total > DIFF_THRESHOLD:
+        raise ValueError(
+            f"Diff threshold exceeded: {total} cameras changed "
+            f"(+{len(added)} -{len(removed)} ~{len(changed)}). "
+            f"Threshold is {DIFF_THRESHOLD}. Inspect before publishing."
+        )
+
+    return {"added": added, "removed": removed, "changed": changed}
