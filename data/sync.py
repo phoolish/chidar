@@ -267,6 +267,10 @@ def diff_cameras(new_cameras: list[dict], published_url: str) -> dict:
     except Exception:
         return {"added": [], "removed": [], "changed": []}
 
+    if not published_cameras:
+        # Empty published dataset = first run (bootstrapped placeholder); skip diff.
+        return {"added": [], "removed": [], "changed": []}
+
     published = {cam["id"]: cam for cam in published_cameras}
     new = {cam["id"]: cam for cam in new_cameras}
 

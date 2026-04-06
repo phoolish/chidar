@@ -93,6 +93,13 @@ def test_diff_returns_empty_diff_on_first_run():
     assert diff == {"added": [], "removed": [], "changed": []}
 
 
+def test_diff_returns_empty_diff_when_published_cameras_is_empty():
+    """Bootstrapped placeholder (empty cameras list) is treated as first run."""
+    with patch("sync.requests.get", return_value=_mock_published([])):
+        diff = diff_cameras([_make_cam("CHI-A")], PUBLISHED_URL)
+    assert diff == {"added": [], "removed": [], "changed": []}
+
+
 def test_diff_detects_added_camera():
     published = [_make_cam("CHI-A")]
     new = [_make_cam("CHI-A"), _make_cam("CHI-B")]
