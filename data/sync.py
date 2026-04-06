@@ -33,7 +33,6 @@ REQUIRED_FIELDS = [
     "source_location_id",
     "latitude",
     "longitude",
-    "first_approach",
     "enforcement_zone",
     "street",
     "active",
@@ -81,6 +80,8 @@ def determine_zone_type(lat: float, lng: float, parks_geojson: dict) -> str:
     """
     point = Point(lng, lat)
     for feature in parks_geojson["features"]:
+        if not feature.get("geometry"):
+            continue
         polygon = shape(feature["geometry"])
         if point.within(polygon):
             return "park"
@@ -316,3 +317,52 @@ def write_output(
 
     with open(os.path.join(output_dir, "manifest.json"), "w") as f:
         json.dump(manifest_data, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    app_token = os.environ.get("SOCRATA_APP_TOKEN", "")
+    if not app_token:
+        print("WARNING: SOCRATA_APP_TOKEN not set — requests may be rate-limited")
+
+    print("Stage 1: Fetching data...")
+    raw_cameras = fetch_cameras(app_token)
+    parks_geojson = fetch_parks()
+    print(f"  {len(raw_cameras)} cameras, {len(parks_geojson['features'])} park polygons")
+
+    print("Stage 2: Enriching cameras...")
+    with open(OVERRIDES_PATH) as f:
+        overrides = json.load(f)
+    cameras, enrich_warnings = enrich_cameras(raw_cameras, parks_geojson, overrides)
+    for w in enrich_warnings:
+        print(f"  WARNING: {w}")
+
+    print("Stage 3: Validating...")
+    errors, validate_warnings = validate_cameras(cameras)
+    for w in validate_warnings:
+        print(f"  WARNING: {w}")
+    if errors:
+        for e in errors:
+            print(f"  ERROR: {e}")
+        sys.exit(1)
+
+    print("Stage 4: Diffing against published data...")
+    diff = diff_cameras(cameras, PUBLISHED_URL)
+    print(
+        f"  +{len(diff['added'])} added  "
+        f"-{len(diff['removed'])} removed  "
+        f"~{len(diff['changed'])} changed"
+    )
+
+    print("Stage 5: Writing output...")
+    all_warnings = enrich_warnings + validate_warnings
+    write_output(cameras, diff, all_warnings, OUTPUT_DIR)
+    print(f"  Written to {OUTPUT_DIR}/")
+    print(f"Done — {len(cameras)} cameras.")
+
+
+if __name__ == "__main__":
+    main()

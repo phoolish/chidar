@@ -46,9 +46,9 @@ def test_null_speed_limit_is_error():
 
 def test_missing_required_field_is_error():
     cams = make_cameras(150)
-    del cams[0]["first_approach"]
+    del cams[0]["street"]
     errors, _ = validate_cameras(cams)
-    assert any("first_approach" in e for e in errors)
+    assert any("street" in e for e in errors)
 
 
 def test_latitude_outside_chicago_is_error():
